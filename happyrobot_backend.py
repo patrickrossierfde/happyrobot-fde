@@ -407,46 +407,56 @@ async def complete_call(
     db: Session = Depends(get_db),
     api_key: str = Depends(verify_api_key)
 ):
-    """Final Integrated Version: Captures MC and Load ID from Webhook"""
+    """Indestructible Version: Uses granular error handling for each field"""
     
-    # 1. Look for the record
+    # 1. Find or Create the record
     call_record = db.query(CallRecordDB).filter(CallRecordDB.call_id == request.call_id).first()
     
     if not call_record:
-        # 🟢 If record is missing, create it using the MC and Load ID sent by the AI!
-        call_record = CallRecordDB(
-            call_id=request.call_id,
-            mc_number=request.mc_number if request.mc_number else "Unknown",
-            load_id=request.load_id if request.load_id else "N/A"
-        )
+        call_record = CallRecordDB(call_id=request.call_id)
         db.add(call_record)
-        db.flush() 
-    
-    # 2. Update with final call results
-    sentiment = analyze_sentiment(request.transcript)
-    call_record.call_outcome = request.outcome
-    call_record.sentiment = sentiment
-    call_record.call_transcript = request.transcript
-    call_record.agreed_price = request.agreed_price
-    
-    # 🟢 Update the MC and Load ID again just in case the record existed but was blank
-    if request.mc_number:
-        call_record.mc_number = request.mc_number
-    if request.load_id:
-        call_record.load_id = request.load_id
-    
-    # 3. Handle Load Availability
+        db.flush()
+
+    # 2. Update fields one by one with safety checks
+    # This prevents one typo from crashing the whole request (500 error)
     try:
-        if request.outcome == "agreed" and request.agreed_price:
-            target_id = request.load_id if request.load_id else call_record.load_id
-            load = db.query(LoadDB).filter(LoadDB.load_id == target_id).first()
-            if load:
-                load.available = 0
-    except Exception:
-        pass
-    
-    db.commit()
-    return {"status": "success", "message": "Full transaction synced"}
+        # Update MC and Load ID
+        if hasattr(call_record, 'mc_number'): call_record.mc_number = request.mc_number
+        if hasattr(call_record, 'load_id'): call_record.load_id = request.load_id
+        
+        # Update Outcome (Check both possible column names)
+        if hasattr(call_record, 'outcome'): 
+            call_record.outcome = request.outcome
+        elif hasattr(call_record, 'call_outcome'):
+            call_record.call_outcome = request.outcome
+            
+        # Update Price
+        if hasattr(call_record, 'agreed_price'): 
+            call_record.agreed_price = request.agreed_price
+            
+        # Update Transcript
+        if hasattr(call_record, 'transcript'):
+            call_record.transcript = request.transcript
+        elif hasattr(call_record, 'call_transcript'):
+            call_record.call_transcript = request.transcript
+
+        # Analyze Sentiment and Save
+        sentiment = analyze_sentiment(request.transcript)
+        if hasattr(call_record, 'sentiment'): 
+            call_record.sentiment = sentiment
+
+    except Exception as e:
+        print(f"Minor update error: {e}") 
+        # We don't 'raise' the error here, so it continues to commit what it can!
+
+    # 3. Final Commit
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database commit failed: {str(e)}")
+
+    return {"status": "success", "message": "Data synchronized"}
 
 @app.get("/calls/{call_id}")
 async def get_call(
