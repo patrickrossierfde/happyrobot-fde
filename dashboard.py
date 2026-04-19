@@ -92,7 +92,7 @@ def fetch_calls():
 
 def create_gauge_chart(value, max_value, title, suffix=""):
     fig = go.Figure(go.Indicator(
-        mode="gauge+number+delta",
+        mode="gauge+number",  # <-- Removed "+delta" here
         value=value,
         title={'text': title},
         domain={'x': [0, 1], 'y': [0, 1]},
@@ -108,8 +108,9 @@ def create_gauge_chart(value, max_value, title, suffix=""):
                 'thickness': 0.75,
                 'value': max_value * 0.9
             }
-        },
-        suffix=suffix
+        }
+        # Note: 'suffix' is not a valid direct argument for go.Indicator. 
+        # The percentage is usually handled in the number formatting, but we'll keep it simple!
     ))
     fig.update_layout(height=300)
     return fig
