@@ -510,7 +510,7 @@ async def list_calls(
     api_key: str = Depends(verify_api_key),
     limit: int = 100
 ):
-    """List all call records"""
+    """List all call records - now including transcripts"""
     calls = db.query(CallRecordDB).order_by(CallRecordDB.created_at.desc()).limit(limit).all()
     
     return {
@@ -523,12 +523,13 @@ async def list_calls(
                 "outcome": call.call_outcome,
                 "sentiment": call.sentiment,
                 "agreed_price": call.agreed_price,
-                "created_at": call.created_at.isoformat()
+                "created_at": call.created_at.isoformat(),
+                # --- ADD THIS LINE BELOW ---
+                "call_transcript": call.call_transcript 
             }
             for call in calls
         ]
     }
-
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
