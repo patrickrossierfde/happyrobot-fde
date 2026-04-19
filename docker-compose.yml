@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - API_KEY=happyrobot-dev-key-12345
+      - DATABASE_URL=sqlite:///./loads.db
+      - ENVIRONMENT=development
+    volumes:
+      - ./loads.db:/app/loads.db
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    networks:
+      - happyrobot_network
+
+  dashboard:
+    image: python:3.11-slim
+    working_dir: /app
+    command: >
+      bash -c "pip install -q streamlit requests pandas plotly &&
+               streamlit run dashboard.py --server.port=8501 --server.address=0.0.0.0"
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./dashboard.py:/app/dashboard.py
+    environment:
+      - API_BASE_URL=http://api:8000
+      - API_KEY=happyrobot-dev-key-12345
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - happyrobot_network
+
+networks:
+  happyrobot_network:
+    driver: bridge
+
+volumes:
+  db_data:
