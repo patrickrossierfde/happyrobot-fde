@@ -407,45 +407,46 @@ async def complete_call(
     db: Session = Depends(get_db),
     api_key: str = Depends(verify_api_key)
 ):
-    """Complete a call and record outcome - Final Bulletproof Version"""
-    # 1. Try to find the existing call record
+    """Final Integrated Version: Captures MC and Load ID from Webhook"""
+    
+    # 1. Look for the record
     call_record = db.query(CallRecordDB).filter(CallRecordDB.call_id == request.call_id).first()
     
     if not call_record:
-        # 🟢 RECOVERY: Create the bare minimum record to avoid 404
-        # We only use call_id and mc_number to ensure it matches your DB schema
+        # 🟢 If record is missing, create it using the MC and Load ID sent by the AI!
         call_record = CallRecordDB(
             call_id=request.call_id,
-            mc_number="RECOVERED"
+            mc_number=request.mc_number if request.mc_number else "Unknown",
+            load_id=request.load_id if request.load_id else "N/A"
         )
         db.add(call_record)
         db.flush() 
     
-    # 2. Analyze sentiment
+    # 2. Update with final call results
     sentiment = analyze_sentiment(request.transcript)
-    
-    # 3. Update the record - Using the EXACT column names from your original code
     call_record.call_outcome = request.outcome
     call_record.sentiment = sentiment
     call_record.call_transcript = request.transcript
     call_record.agreed_price = request.agreed_price
     
-    # 4. Handle Load Availability (Wrapped in a try/except so it never crashes the whole call)
+    # 🟢 Update the MC and Load ID again just in case the record existed but was blank
+    if request.mc_number:
+        call_record.mc_number = request.mc_number
+    if request.load_id:
+        call_record.load_id = request.load_id
+    
+    # 3. Handle Load Availability
     try:
-        if request.outcome == "agreed" and request.agreed_price and hasattr(call_record, 'load_id'):
-            load = db.query(LoadDB).filter(LoadDB.load_id == call_record.load_id).first()
+        if request.outcome == "agreed" and request.agreed_price:
+            target_id = request.load_id if request.load_id else call_record.load_id
+            load = db.query(LoadDB).filter(LoadDB.load_id == target_id).first()
             if load:
                 load.available = 0
     except Exception:
-        pass # If load-locking fails, we still want to save the call data!
+        pass
     
     db.commit()
-    
-    return {
-        "call_id": request.call_id,
-        "status": "success",
-        "message": "Dashboard Updated"
-    }
+    return {"status": "success", "message": "Full transaction synced"}
 
 @app.get("/calls/{call_id}")
 async def get_call(
