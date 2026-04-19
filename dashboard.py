@@ -40,7 +40,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==================== CONFIG ====================
-API_BASE_URL = st.secrets.get("API_BASE_URL", "http://localhost:8000")
+API_BASE_URL = st.secrets.get("API_BASE_URL", "https://happyrobot-fde-production-bf9f.up.railway.app")
 API_KEY = st.secrets.get("API_KEY", "happyrobot-dev-key-12345")
 
 HEADERS = {"X-API-Key": API_KEY}
@@ -92,7 +92,7 @@ def fetch_calls():
 
 def create_gauge_chart(value, max_value, title, suffix=""):
     fig = go.Figure(go.Indicator(
-        mode="gauge+number",  # <-- Removed "+delta" here
+        mode="gauge+number",
         value=value,
         title={'text': title},
         domain={'x': [0, 1], 'y': [0, 1]},
@@ -109,8 +109,6 @@ def create_gauge_chart(value, max_value, title, suffix=""):
                 'value': max_value * 0.9
             }
         }
-        # Note: 'suffix' is not a valid direct argument for go.Indicator. 
-        # The percentage is usually handled in the number formatting, but we'll keep it simple!
     ))
     fig.update_layout(height=300)
     return fig
@@ -129,32 +127,68 @@ if mode == "📊 Dashboard":
         with col1:
             st.metric(
                 label="📞 Total Calls",
-                value=metrics['total_calls'],
-                delta="+5 today" if metrics['total_calls'] > 0 else "No data"
+                value=metrics.get('total_calls', 0),
+                delta="+5 today" if metrics.get('total_calls', 0) > 0 else "No data"
             )
         
         with col2:
             st.metric(
                 label="✅ Deals Closed",
-                value=metrics['agreed_calls'],
-                delta=f"{metrics['conversion_rate']:.1f}% conversion"
+                value=metrics.get('agreed_calls', 0),
+                delta=f"{metrics.get('conversion_rate', 0):.1f}% conversion"
             )
         
         with col3:
             st.metric(
                 label="💰 Total Revenue",
-                value=f"${metrics['total_revenue_generated']:,.2f}",
+                value=f"${metrics.get('total_revenue_generated', 0):,.2f}",
                 delta="From confirmed loads"
             )
         
         with col4:
             st.metric(
                 label="🔄 Avg Negotiation Rounds",
-                value=f"{metrics['avg_negotiation_rounds']:.1f}",
+                value=f"{metrics.get('avg_negotiation_rounds', 0):.1f}",
                 delta="Per successful call"
             )
         
         st.markdown("---")
+        
+        # ==========================================
+        # 💡 AUTOMATED BUSINESS INSIGHTS ENGINE
+        # ==========================================
+        st.subheader("💡 Actionable Insights & Recommendations")
+        
+        insight_col1, insight_col2 = st.columns(2)
+        
+        with insight_col1:
+            # Insight 1: Conversion Rate Action
+            conv_rate = metrics.get('conversion_rate', 0)
+            if conv_rate < 30 and metrics.get('total_calls', 0) > 3:
+                st.error(f"**📉 Low Conversion Alert ({conv_rate:.1f}%)**\n\n**Action:** Carriers are rejecting offers at a high rate. Consider increasing the 'Max Pay' ceiling in the negotiation logic by 5-10% to secure more capacity.")
+            elif conv_rate > 75:
+                st.warning(f"**📈 High Conversion Alert ({conv_rate:.1f}%)**\n\n**Action:** Carriers are accepting offers very easily. You might be leaving money on the table. Consider lowering the initial starting offer by 5% to capture more margin.")
+            else:
+                st.success(f"**✅ Conversion Rate Optimal ({conv_rate:.1f}%)**\n\n**Action:** Pricing is currently in the sweet spot. Maintain current guardrails.")
+
+        with insight_col2:
+            # Insight 2: Sentiment & Negotiation Action
+            sentiment_data = metrics.get('sentiment_breakdown', {})
+            total_sentiment = sum(sentiment_data.values()) if sentiment_data else 0
+            
+            if total_sentiment > 0:
+                neg_ratio = sentiment_data.get('negative', 0) / total_sentiment
+                if neg_ratio > 0.4:
+                    st.error("**⚠️ High Negative Sentiment Detected**\n\n**Action:** 40%+ of callers are frustrated. Review call transcripts. The initial rate may be offensively low, or the AI agent's tone prompt needs to be softened.")
+                elif metrics.get('avg_negotiation_rounds', 0) < 1.2 and conv_rate > 50:
+                    st.info("**🔄 Low Negotiation Friction**\n\n**Action:** Deals are closing in ~1 round. Carriers are accepting early. We can likely push for tougher negotiation tactics in the agent's prompt.")
+                else:
+                    st.success("**💬 Caller Sentiment Stable**\n\n**Action:** Carriers are responding well to the agent's negotiation style. No prompt adjustments needed.")
+            else:
+                st.info("Gathering sentiment data... Make a few more calls to unlock tone insights.")
+                
+        st.markdown("---")
+        # ==========================================
         
         # Charts Row
         col1, col2 = st.columns(2)
@@ -162,7 +196,7 @@ if mode == "📊 Dashboard":
         with col1:
             # Conversion Rate Gauge
             fig_gauge = create_gauge_chart(
-                metrics['conversion_rate'],
+                metrics.get('conversion_rate', 0),
                 100,
                 "Conversion Rate",
                 "%"
@@ -198,28 +232,31 @@ if mode == "📊 Dashboard":
             st.info(f"""
             **Negotiation Efficiency**
             
-            Average rounds to close: {metrics['avg_negotiation_rounds']:.1f}
+            Average rounds to close: {metrics.get('avg_negotiation_rounds', 0):.1f}
             
             ✅ Below industry average (2-3 rounds)
             """)
         
         with perf_col2:
-            conversion_color = "🟢" if metrics['conversion_rate'] > 50 else "🟡" if metrics['conversion_rate'] > 25 else "🔴"
+            conv_rate = metrics.get('conversion_rate', 0)
+            conversion_color = "🟢" if conv_rate > 50 else "🟡" if conv_rate > 25 else "🔴"
             st.success(f"""
             **Conversion Performance**
             
-            {conversion_color} {metrics['conversion_rate']:.1f}% success rate
+            {conversion_color} {conv_rate:.1f}% success rate
             
-            {metrics['agreed_calls']} closed out of {metrics['total_calls']} calls
+            {metrics.get('agreed_calls', 0)} closed out of {metrics.get('total_calls', 0)} calls
             """)
         
         with perf_col3:
+            total_rev = metrics.get('total_revenue_generated', 0)
+            total_calls = max(metrics.get('total_calls', 0), 1)
             st.warning(f"""
             **Revenue Per Call**
             
-            ${metrics['total_revenue_generated'] / max(metrics['total_calls'], 1):,.2f} average
+            ${total_rev / total_calls:,.2f} average
             
-            Total generated: ${metrics['total_revenue_generated']:,.2f}
+            Total generated: ${total_rev:,.2f}
             """)
     else:
         st.error("Unable to fetch metrics. Is the API running?")
@@ -231,10 +268,9 @@ elif mode == "📞 Call Records":
     
     calls_data = fetch_calls()
     
-    if calls_data and calls_data['calls']:
+    if calls_data and calls_data.get('calls'):
         df = pd.DataFrame(calls_data['calls'])
         
-        # Format the dataframe
         if not df.empty:
             df['created_at'] = pd.to_datetime(df['created_at']).dt.strftime('%Y-%m-%d %H:%M')
             df = df.rename(columns={
@@ -247,7 +283,6 @@ elif mode == "📞 Call Records":
                 'created_at': 'Timestamp'
             })
             
-            # Display filters
             col1, col2, col3 = st.columns(3)
             with col1:
                 outcome_filter = st.multiselect(
@@ -258,8 +293,8 @@ elif mode == "📞 Call Records":
             with col2:
                 sentiment_filter = st.multiselect(
                     "Filter by Sentiment",
-                    df['Sentiment'].unique(),
-                    default=df['Sentiment'].unique()
+                    df['Sentiment'].dropna().unique(),
+                    default=df['Sentiment'].dropna().unique()
                 )
             with col3:
                 sort_by = st.selectbox(
@@ -267,25 +302,23 @@ elif mode == "📞 Call Records":
                     ["Timestamp (Latest)", "Agreed Price (High to Low)", "MC Number"]
                 )
             
-            # Apply filters
             filtered_df = df[
-                (df['Outcome'].isin(outcome_filter)) &
-                (df['Sentiment'].isin(sentiment_filter))
+                (df['Outcome'].isin(outcome_filter))
             ]
+            if len(sentiment_filter) > 0:
+                filtered_df = filtered_df[filtered_df['Sentiment'].isin(sentiment_filter)]
             
             if sort_by == "Agreed Price (High to Low)":
                 filtered_df = filtered_df.sort_values('Agreed Price', ascending=False, na_position='last')
             elif sort_by == "MC Number":
                 filtered_df = filtered_df.sort_values('MC Number')
             
-            # Display table
             st.dataframe(
                 filtered_df,
                 use_container_width=True,
                 hide_index=True
             )
             
-            # Export option
             csv = filtered_df.to_csv(index=False)
             st.download_button(
                 label="📥 Download as CSV",
@@ -305,7 +338,7 @@ elif mode == "🎯 Performance":
     metrics = fetch_metrics()
     calls_data = fetch_calls()
     
-    if metrics and calls_data:
+    if metrics and calls_data and calls_data.get('calls'):
         st.subheader("Call Outcome Distribution")
         
         df = pd.DataFrame(calls_data['calls'])
@@ -327,10 +360,9 @@ elif mode == "🎯 Performance":
             )
             st.plotly_chart(fig, use_container_width=True)
             
-            # Stats
             col1, col2, col3 = st.columns(3)
             with col1:
-                st.metric("Most Common Outcome", outcome_counts.idxmax())
+                st.metric("Most Common Outcome", outcome_counts.idxmax() if not outcome_counts.empty else "N/A")
             with col2:
                 st.metric("Calls with Sentiment", len(df[df['sentiment'].notna()]))
             with col3:
