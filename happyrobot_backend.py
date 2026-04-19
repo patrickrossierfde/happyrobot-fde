@@ -408,22 +408,32 @@ async def complete_call(
     db: Session = Depends(get_db),
     api_key: str = Depends(verify_api_key)
 ):
-    """Complete a call and record outcome"""
+    """Complete a call and record outcome - Self-Healing Version"""
+    # 1. Try to find the existing call record
     call_record = db.query(CallRecordDB).filter(CallRecordDB.call_id == request.call_id).first()
     
     if not call_record:
-        raise HTTPException(status_code=404, detail="Call record not found")
+        # 🟢 RECOVERY MODE: If Railway wiped the DB, create a new record on the fly
+        # This prevents the 404 error and captures your call data
+        call_record = CallRecordDB(
+            call_id=request.call_id,
+            mc_number="RECOVERED",
+            load_id="N/A",
+            available=1
+        )
+        db.add(call_record)
+        db.flush() 
     
-    # Analyze sentiment from entire transcript
+    # 2. Analyze sentiment using your existing function
     sentiment = analyze_sentiment(request.transcript)
     
-    # Update call record
+    # 3. Update the record with the final data from the AI
     call_record.call_outcome = request.outcome
     call_record.sentiment = sentiment
     call_record.call_transcript = request.transcript
     call_record.agreed_price = request.agreed_price
     
-    # If agreed, mark load as unavailable
+    # 4. If a deal was struck, mark the load as unavailable
     if request.outcome == "agreed" and request.agreed_price:
         load = db.query(LoadDB).filter(LoadDB.load_id == call_record.load_id).first()
         if load:
@@ -436,7 +446,7 @@ async def complete_call(
         "outcome": request.outcome,
         "sentiment": sentiment,
         "agreed_price": request.agreed_price,
-        "message": "Call recorded successfully"
+        "message": "Call recorded successfully (Self-Healed)"
     }
 
 @app.get("/calls/{call_id}")
