@@ -330,7 +330,7 @@ elif mode == "📞 Call Records":
                 st.markdown("### 📝 Full Conversation Transcript")
                 
                 # Handling the hidden 'call_transcript' data
-                raw_transcript = call_data.get('call_transcript', "No transcript available.")
+                raw_transcript = call_data.get('call_transcript') or call_data.get('transcript') or "No transcript available."
                 clean_transcript = str(raw_transcript).replace("\\n", "\n").replace('\\"', '"')
                 
                 st.info(clean_transcript)
