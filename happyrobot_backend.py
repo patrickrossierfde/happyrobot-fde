@@ -183,15 +183,19 @@ def analyze_sentiment(text: str) -> str:
     return "neutral"
 
 def calculate_final_offer(initial_offer: float, carrier_offer: float, round_num: int) -> float:
-    """Calculate system's counter offer"""
-    # Simple negotiation strategy: meet halfway but cap number of rounds
+    """Calculate system's counter offer - Broker Logic"""
+    # If they've asked too many times, stay at the last offer
     if round_num >= 3:
-        return initial_offer  # No more negotiation
+        return initial_offer
     
-    proposed = (initial_offer + carrier_offer) / 2
-    # Keep at least 10% margin
-    minimum_acceptable = initial_offer * 0.90
-    return max(proposed, minimum_acceptable)
+    # Set a 'Max Pay' ceiling (e.g., 15% above the loadboard rate)
+    max_pay = initial_offer * 1.15
+    
+    # Meet them halfway
+    proposed_increase = (initial_offer + carrier_offer) / 2
+    
+    # Return the halfway point, but never go above your Max Pay
+    return min(proposed_increase, max_pay)
 
 # ==================== ENDPOINTS ====================
 
