@@ -330,10 +330,31 @@ elif mode == "📞 Call Records":
                 st.markdown("### 📝 Full Conversation Transcript")
                 
                 # Handling the hidden 'call_transcript' data
-                raw_transcript = call_data.get('call_transcript') or call_data.get('transcript') or "No transcript available."
-                clean_transcript = str(raw_transcript).replace("\\n", "\n").replace('\\"', '"')
+                raw_transcript = call_data.get('call_transcript') or call_data.get('transcript') or "[]"
+
+                try:
+                    # Parse the JSON string
+                    messages = json.loads(raw_transcript)
+                    
+                    # Display as a modern chat history
+                    for msg in messages:
+                        role = msg.get("role", "")
+                        content = msg.get("content", "")
+                        
+                        # Skip tool logs and empty content to keep it clean for the user
+                        if not content or role == "tool":
+                            continue
+                            
+                        if role == "assistant":
+                            with st.chat_message("assistant", avatar="🤖"):
+                                st.write(f"**Josh (AI):** {content}")
+                        elif role == "user":
+                            with st.chat_message("user", avatar="🚛"):
+                                st.write(f"**Carrier:** {content}")
                 
-                st.info(clean_transcript)
+                except Exception as e:
+                    # Fallback if transcript is just plain text or malformed
+                    st.info(str(raw_transcript).replace("\\n", "\n"))
 
 # ==================== PERFORMANCE ====================
 elif mode == "🎯 Performance":
