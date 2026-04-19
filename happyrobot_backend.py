@@ -111,6 +111,7 @@ class CallCompleteRequest(BaseModel):
     # These two MUST be here because HappyRobot is now sending them!
     mc_number: Optional[str] = None
     load_id: Optional[str] = None
+    negotiation_rounds: int = 0
 
 class CallRecord(BaseModel):
     call_id: str
@@ -430,6 +431,7 @@ async def complete_call(
     call_record.agreed_price = request.agreed_price
     call_record.call_outcome = request.outcome      # Database uses call_outcome
     call_record.call_transcript = request.transcript # Database uses call_transcript
+    call_record.negotiation_rounds = request.negotiation_rounds
     
     # 3. Handle Sentiment
     sentiment = analyze_sentiment(request.transcript)
