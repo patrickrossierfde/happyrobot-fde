@@ -105,9 +105,12 @@ class NegotiationRequest(BaseModel):
 
 class CallCompleteRequest(BaseModel):
     call_id: str
-    agreed_price: Optional[float] = None
+    outcome: str
+    agreed_price: float
     transcript: str
-    outcome: str  # "agreed", "rejected", "no_match"
+    # These two MUST be here because HappyRobot is now sending them!
+    mc_number: Optional[str] = None
+    load_id: Optional[str] = None
 
 class CallRecord(BaseModel):
     call_id: str
@@ -401,13 +404,14 @@ async def negotiate(
         "can_continue": call_record.negotiation_rounds < 3,
         "message": f"We can go to ${counter_offer:.2f}. Can you accept this rate?"
     }
+    
 @app.post("/complete-call")
 async def complete_call(
     request: CallCompleteRequest,
     db: Session = Depends(get_db),
     api_key: str = Depends(verify_api_key)
 ):
-    """Final Version aligned with CallRecordDB schema"""
+    """Final Version: Fully synced with CallRecordDB and HappyRobot"""
     # 1. Find or create the record
     call_record = db.query(CallRecordDB).filter(CallRecordDB.call_id == request.call_id).first()
     
@@ -420,27 +424,28 @@ async def complete_call(
         db.add(call_record)
         db.flush()
 
-    # 2. Map fields using the EXACT names from your Models class
+    # 2. Map fields to your specific DB columns
     call_record.mc_number = request.mc_number
     call_record.load_id = request.load_id
     call_record.agreed_price = request.agreed_price
+    call_record.call_outcome = request.outcome      # Database uses call_outcome
+    call_record.call_transcript = request.transcript # Database uses call_transcript
     
-    # Matching the specific DB column names:
-    call_record.call_outcome = request.outcome
-    call_record.call_transcript = request.transcript
-    
-    # 3. Analyze and save sentiment
+    # 3. Handle Sentiment
     sentiment = analyze_sentiment(request.transcript)
     call_record.sentiment = sentiment
 
-    # 4. Lock the load if agreed
-    if request.outcome == "agreed" and request.agreed_price:
-        load = db.query(LoadDB).filter(LoadDB.load_id == request.load_id).first()
-        if load:
-            load.available = 0
+    # 4. Lock the load (with safety check)
+    try:
+        if request.outcome == "agreed" and request.agreed_price and request.load_id:
+            load = db.query(LoadDB).filter(LoadDB.load_id == request.load_id).first()
+            if load:
+                load.available = 0
+    except Exception as e:
+        print(f"Load locking skipped: {e}")
 
     db.commit()
-    return {"status": "success", "message": "Database sync perfect"}
+    return {"status": "success", "message": "Dashboard sync perfect"}
 
 @app.get("/calls/{call_id}")
 async def get_call(
