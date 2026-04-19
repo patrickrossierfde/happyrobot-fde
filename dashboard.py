@@ -272,6 +272,7 @@ elif mode == "📞 Call Records":
         df = pd.DataFrame(calls_data['calls'])
         
         if not df.empty:
+            # 1. CLEANING AND RENAMING (Existing code)
             df['created_at'] = pd.to_datetime(df['created_at']).dt.strftime('%Y-%m-%d %H:%M')
             df = df.rename(columns={
                 'call_id': 'Call ID',
@@ -283,53 +284,56 @@ elif mode == "📞 Call Records":
                 'created_at': 'Timestamp'
             })
             
+            # 2. FILTERS (Existing code)
             col1, col2, col3 = st.columns(3)
             with col1:
-                outcome_filter = st.multiselect(
-                    "Filter by Outcome",
-                    df['Outcome'].unique(),
-                    default=df['Outcome'].unique()
-                )
+                outcome_filter = st.multiselect("Filter by Outcome", df['Outcome'].unique(), default=df['Outcome'].unique())
             with col2:
-                sentiment_filter = st.multiselect(
-                    "Filter by Sentiment",
-                    df['Sentiment'].dropna().unique(),
-                    default=df['Sentiment'].dropna().unique()
-                )
+                sentiment_filter = st.multiselect("Filter by Sentiment", df['Sentiment'].dropna().unique(), default=df['Sentiment'].dropna().unique())
             with col3:
-                sort_by = st.selectbox(
-                    "Sort by",
-                    ["Timestamp (Latest)", "Agreed Price (High to Low)", "MC Number"]
-                )
+                sort_by = st.selectbox("Sort by", ["Timestamp (Latest)", "Agreed Price (High to Low)", "MC Number"])
             
-            filtered_df = df[
-                (df['Outcome'].isin(outcome_filter))
-            ]
+            filtered_df = df[(df['Outcome'].isin(outcome_filter))]
             if len(sentiment_filter) > 0:
                 filtered_df = filtered_df[filtered_df['Sentiment'].isin(sentiment_filter)]
             
-            if sort_by == "Agreed Price (High to Low)":
-                filtered_df = filtered_df.sort_values('Agreed Price', ascending=False, na_position='last')
-            elif sort_by == "MC Number":
-                filtered_df = filtered_df.sort_values('MC Number')
-            
-            st.dataframe(
-                filtered_df,
-                use_container_width=True,
-                hide_index=True
-            )
+            # 3. THE DATA TABLE (Existing code)
+            st.dataframe(filtered_df, use_container_width=True, hide_index=True)
             
             csv = filtered_df.to_csv(index=False)
-            st.download_button(
-                label="📥 Download as CSV",
-                data=csv,
-                file_name=f"call_records_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv"
-            )
-        else:
-            st.info("No call records found.")
-    else:
-        st.warning("Unable to fetch call records.")
+            st.download_button(label="📥 Download as CSV", data=csv, mime="text/csv")
+
+            # ==========================================
+            # 🔍 NEW CODE: DEEP DIVE SECTION
+            # ==========================================
+            st.divider()
+            st.subheader("🔍 Deep Dive: Call Review")
+            
+            call_options = filtered_df.apply(lambda x: f"{x['Call ID'][:8]}... (MC: {x['MC Number']})", axis=1).tolist()
+            
+            if call_options:
+                selected_label = st.selectbox("Select a Call to review the full transcript:", options=call_options)
+                
+                selected_idx = call_options.index(selected_label)
+                call_data = filtered_df.iloc[selected_idx]
+                
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.metric("Final Agreed Price", f"${call_data['Agreed Price']:,.2f}")
+                with c2:
+                    st.write(f"**Outcome:** `{call_data['Outcome']}`")
+                    st.write(f"**Sentiment:** `{call_data['Sentiment']}`")
+                with c3:
+                    st.write(f"**Carrier MC:** {call_data['MC Number']}")
+                    st.write(f"**Load ID:** {call_data['Load ID']}")
+
+                st.markdown("### 📝 Full Conversation Transcript")
+                
+                # Handling the hidden 'call_transcript' data
+                raw_transcript = call_data.get('call_transcript', "No transcript available.")
+                clean_transcript = str(raw_transcript).replace("\\n", "\n").replace('\\"', '"')
+                
+                st.info(clean_transcript)
 
 # ==================== PERFORMANCE ====================
 elif mode == "🎯 Performance":
