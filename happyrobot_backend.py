@@ -407,56 +407,40 @@ async def complete_call(
     db: Session = Depends(get_db),
     api_key: str = Depends(verify_api_key)
 ):
-    """Indestructible Version: Uses granular error handling for each field"""
-    
-    # 1. Find or Create the record
+    """Final Version aligned with CallRecordDB schema"""
+    # 1. Find or create the record
     call_record = db.query(CallRecordDB).filter(CallRecordDB.call_id == request.call_id).first()
     
     if not call_record:
-        call_record = CallRecordDB(call_id=request.call_id)
+        call_record = CallRecordDB(
+            call_id=request.call_id,
+            mc_number=request.mc_number,
+            load_id=request.load_id
+        )
         db.add(call_record)
         db.flush()
 
-    # 2. Update fields one by one with safety checks
-    # This prevents one typo from crashing the whole request (500 error)
-    try:
-        # Update MC and Load ID
-        if hasattr(call_record, 'mc_number'): call_record.mc_number = request.mc_number
-        if hasattr(call_record, 'load_id'): call_record.load_id = request.load_id
-        
-        # Update Outcome (Check both possible column names)
-        if hasattr(call_record, 'outcome'): 
-            call_record.outcome = request.outcome
-        elif hasattr(call_record, 'call_outcome'):
-            call_record.call_outcome = request.outcome
-            
-        # Update Price
-        if hasattr(call_record, 'agreed_price'): 
-            call_record.agreed_price = request.agreed_price
-            
-        # Update Transcript
-        if hasattr(call_record, 'transcript'):
-            call_record.transcript = request.transcript
-        elif hasattr(call_record, 'call_transcript'):
-            call_record.call_transcript = request.transcript
+    # 2. Map fields using the EXACT names from your Models class
+    call_record.mc_number = request.mc_number
+    call_record.load_id = request.load_id
+    call_record.agreed_price = request.agreed_price
+    
+    # Matching the specific DB column names:
+    call_record.call_outcome = request.outcome
+    call_record.call_transcript = request.transcript
+    
+    # 3. Analyze and save sentiment
+    sentiment = analyze_sentiment(request.transcript)
+    call_record.sentiment = sentiment
 
-        # Analyze Sentiment and Save
-        sentiment = analyze_sentiment(request.transcript)
-        if hasattr(call_record, 'sentiment'): 
-            call_record.sentiment = sentiment
+    # 4. Lock the load if agreed
+    if request.outcome == "agreed" and request.agreed_price:
+        load = db.query(LoadDB).filter(LoadDB.load_id == request.load_id).first()
+        if load:
+            load.available = 0
 
-    except Exception as e:
-        print(f"Minor update error: {e}") 
-        # We don't 'raise' the error here, so it continues to commit what it can!
-
-    # 3. Final Commit
-    try:
-        db.commit()
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Database commit failed: {str(e)}")
-
-    return {"status": "success", "message": "Data synchronized"}
+    db.commit()
+    return {"status": "success", "message": "Database sync perfect"}
 
 @app.get("/calls/{call_id}")
 async def get_call(
