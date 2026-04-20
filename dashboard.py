@@ -67,11 +67,8 @@ def fetch_metrics():
         )
         if response.status_code == 200:
             return response.json()
-        else:
-            st.error(f"API Error: {response.status_code}")
-            return None
+        return None
     except Exception as e:
-        st.error(f"Connection Error: {str(e)}")
         return None
 
 @st.cache_data(ttl=10)
@@ -84,10 +81,8 @@ def fetch_calls():
         )
         if response.status_code == 200:
             return response.json()
-        else:
-            return None
+        return None
     except Exception as e:
-        st.error(f"Connection Error: {str(e)}")
         return None
 
 def create_gauge_chart(value, max_value, title, suffix=""):
@@ -116,41 +111,34 @@ def create_gauge_chart(value, max_value, title, suffix=""):
 # ==================== MAIN DASHBOARD ====================
 if mode == "📊 Dashboard":
     st.title("📊 Inbound Carrier Sales Dashboard")
-    st.markdown("Real-time analytics for call outcomes and performance metrics")
+    st.markdown("Real-time analytics for call outcomes and business performance")
     
     metrics = fetch_metrics()
+    calls_data = fetch_calls()
     
     if metrics:
-        # Key Metrics Row 1
-        col1, col2, col3, col4 = st.columns(4)
+        df_calls = pd.DataFrame(calls_data['calls']) if calls_data and calls_data.get('calls') else pd.DataFrame()
+        
+        # Calculate Average Deal Value dynamically
+        avg_deal_value = 0
+        if not df_calls.empty and 'agreed_price' in df_calls.columns:
+            agreed_deals = df_calls[df_calls['outcome'] == 'agreed']
+            if not agreed_deals.empty:
+                avg_deal_value = agreed_deals['agreed_price'].astype(float).mean()
+
+        # Key Metrics Row 1 (Now with 5 columns!)
+        col1, col2, col3, col4, col5 = st.columns(5)
         
         with col1:
-            st.metric(
-                label="📞 Total Calls",
-                value=metrics.get('total_calls', 0),
-                delta="+5 today" if metrics.get('total_calls', 0) > 0 else "No data"
-            )
-        
+            st.metric("📞 Total Calls", metrics.get('total_calls', 0))
         with col2:
-            st.metric(
-                label="✅ Deals Closed",
-                value=metrics.get('agreed_calls', 0),
-                delta=f"{metrics.get('conversion_rate', 0):.1f}% conversion"
-            )
-        
+            st.metric("✅ Deals Closed", metrics.get('agreed_calls', 0), f"{metrics.get('conversion_rate', 0):.1f}% conv")
         with col3:
-            st.metric(
-                label="💰 Total Revenue",
-                value=f"${metrics.get('total_revenue_generated', 0):,.2f}",
-                delta="From confirmed loads"
-            )
-        
+            st.metric("💰 Total Revenue", f"${metrics.get('total_revenue_generated', 0):,.2f}")
         with col4:
-            st.metric(
-                label="🔄 Avg Negotiation Rounds",
-                value=f"{metrics.get('avg_negotiation_rounds', 0):.1f}",
-                delta="Per successful call"
-            )
+            st.metric("📈 Avg Deal Value", f"${avg_deal_value:,.2f}" if avg_deal_value > 0 else "$0.00")
+        with col5:
+            st.metric("🔄 Avg Rounds", f"{metrics.get('avg_negotiation_rounds', 0):.1f}")
         
         st.markdown("---")
         
@@ -162,7 +150,6 @@ if mode == "📊 Dashboard":
         insight_col1, insight_col2 = st.columns(2)
         
         with insight_col1:
-            # Insight 1: Conversion Rate Action
             conv_rate = metrics.get('conversion_rate', 0)
             if conv_rate < 30 and metrics.get('total_calls', 0) > 3:
                 st.error(f"**📉 Low Conversion Alert ({conv_rate:.1f}%)**\n\n**Action:** Carriers are rejecting offers at a high rate. Consider increasing the 'Max Pay' ceiling in the negotiation logic by 5-10% to secure more capacity.")
@@ -172,92 +159,44 @@ if mode == "📊 Dashboard":
                 st.success(f"**✅ Conversion Rate Optimal ({conv_rate:.1f}%)**\n\n**Action:** Pricing is currently in the sweet spot. Maintain current guardrails.")
 
         with insight_col2:
-            # Insight 2: Sentiment & Negotiation Action
-            sentiment_data = metrics.get('sentiment_breakdown', {})
-            total_sentiment = sum(sentiment_data.values()) if sentiment_data else 0
-            
-            if total_sentiment > 0:
-                neg_ratio = sentiment_data.get('negative', 0) / total_sentiment
-                if neg_ratio > 0.4:
-                    st.error("**⚠️ High Negative Sentiment Detected**\n\n**Action:** 40%+ of callers are frustrated. Review call transcripts. The initial rate may be offensively low, or the AI agent's tone prompt needs to be softened.")
-                elif metrics.get('avg_negotiation_rounds', 0) < 1.2 and conv_rate > 50:
-                    st.info("**🔄 Low Negotiation Friction**\n\n**Action:** Deals are closing in ~1 round. Carriers are accepting early. We can likely push for tougher negotiation tactics in the agent's prompt.")
+            if not df_calls.empty and 'outcome' in df_calls.columns:
+                lost_deals = df_calls[df_calls['outcome'] != 'agreed']
+                if not lost_deals.empty:
+                    most_common_loss = lost_deals['outcome'].mode()[0]
+                    if most_common_loss == "no_match":
+                        st.info("**🔍 High Rate of 'No Match'**\n\n**Action:** Carriers are calling in, but we don't have freight matching their equipment or lanes. We need to source more diverse freight for the loadboard.")
+                    elif most_common_loss == "rejected":
+                        st.error("**🛑 High Rate of Rejections**\n\n**Action:** Our final counter-offers are too low for current market conditions. Instruct human brokers to review lane averages.")
+                    else:
+                        st.info(f"**💬 Call Outcome Note:** Most failed calls result in `{most_common_loss}`.")
                 else:
-                    st.success("**💬 Caller Sentiment Stable**\n\n**Action:** Carriers are responding well to the agent's negotiation style. No prompt adjustments needed.")
+                    st.success("**🏆 Perfect Close Rate!**\n\nNo lost deals recorded yet.")
             else:
-                st.info("Gathering sentiment data... Make a few more calls to unlock tone insights.")
+                st.info("Gathering outcome data...")
                 
         st.markdown("---")
-        # ==========================================
         
-        # Charts Row
-        col1, col2 = st.columns(2)
+        # Charts Row (Now 3 Charts for maximum visual impact)
+        col1, col2, col3 = st.columns(3)
         
         with col1:
-            # Conversion Rate Gauge
-            fig_gauge = create_gauge_chart(
-                metrics.get('conversion_rate', 0),
-                100,
-                "Conversion Rate",
-                "%"
-            )
+            fig_gauge = create_gauge_chart(metrics.get('conversion_rate', 0), 100, "Conversion Rate", "%")
             st.plotly_chart(fig_gauge, use_container_width=True)
         
         with col2:
-            # Sentiment Breakdown
             sentiment_data = metrics.get('sentiment_breakdown', {})
             if sentiment_data:
-                fig = go.Figure(data=[
-                    go.Pie(
-                        labels=list(sentiment_data.keys()),
-                        values=list(sentiment_data.values()),
-                        hole=0.3,
-                        marker_colors=['#FF6B6B', '#4ECDC4', '#45B7D1']
-                    )
-                ])
-                fig.update_layout(
-                    title_text="Carrier Sentiment Distribution",
-                    height=400
-                )
-                st.plotly_chart(fig, use_container_width=True)
-        
-        st.markdown("---")
-        
-        # Performance Metrics
-        st.subheader("📈 Performance Insights")
-        
-        perf_col1, perf_col2, perf_col3 = st.columns(3)
-        
-        with perf_col1:
-            st.info(f"""
-            **Negotiation Efficiency**
-            
-            Average rounds to close: {metrics.get('avg_negotiation_rounds', 0):.1f}
-            
-            ✅ Below industry average (2-3 rounds)
-            """)
-        
-        with perf_col2:
-            conv_rate = metrics.get('conversion_rate', 0)
-            conversion_color = "🟢" if conv_rate > 50 else "🟡" if conv_rate > 25 else "🔴"
-            st.success(f"""
-            **Conversion Performance**
-            
-            {conversion_color} {conv_rate:.1f}% success rate
-            
-            {metrics.get('agreed_calls', 0)} closed out of {metrics.get('total_calls', 0)} calls
-            """)
-        
-        with perf_col3:
-            total_rev = metrics.get('total_revenue_generated', 0)
-            total_calls = max(metrics.get('total_calls', 0), 1)
-            st.warning(f"""
-            **Revenue Per Call**
-            
-            ${total_rev / total_calls:,.2f} average
-            
-            Total generated: ${total_rev:,.2f}
-            """)
+                fig_sent = go.Figure(data=[go.Pie(labels=list(sentiment_data.keys()), values=list(sentiment_data.values()), hole=0.3, marker_colors=['#FF6B6B', '#4ECDC4', '#45B7D1'])])
+                fig_sent.update_layout(title_text="Carrier Sentiment", height=300)
+                st.plotly_chart(fig_sent, use_container_width=True)
+                
+        with col3:
+            if not df_calls.empty and 'outcome' in df_calls.columns:
+                outcome_counts = df_calls['outcome'].value_counts()
+                fig_out = go.Figure(data=[go.Pie(labels=outcome_counts.index, values=outcome_counts.values, hole=0.3, marker_colors=['#2ECC71', '#E74C3C', '#F1C40F', '#95A5A6'])])
+                fig_out.update_layout(title_text="Win/Loss Breakdown", height=300)
+                st.plotly_chart(fig_out, use_container_width=True)
+                
     else:
         st.error("Unable to fetch metrics. Is the API running?")
 
@@ -272,11 +211,11 @@ elif mode == "📞 Call Records":
         df = pd.DataFrame(calls_data['calls'])
         
         if not df.empty:
-            # 1. CLEANING AND RENAMING (Existing code)
             df['created_at'] = pd.to_datetime(df['created_at']).dt.strftime('%Y-%m-%d %H:%M')
             df = df.rename(columns={
                 'call_id': 'Call ID',
                 'mc_number': 'MC Number',
+                'carrier_name': 'Carrier Name',
                 'load_id': 'Load ID',
                 'outcome': 'Outcome',
                 'sentiment': 'Sentiment',
@@ -284,36 +223,38 @@ elif mode == "📞 Call Records":
                 'created_at': 'Timestamp'
             })
             
-            # 2. FILTERS (Existing code)
             col1, col2, col3 = st.columns(3)
             with col1:
                 outcome_filter = st.multiselect("Filter by Outcome", df['Outcome'].unique(), default=df['Outcome'].unique())
             with col2:
                 sentiment_filter = st.multiselect("Filter by Sentiment", df['Sentiment'].dropna().unique(), default=df['Sentiment'].dropna().unique())
             with col3:
-                sort_by = st.selectbox("Sort by", ["Timestamp (Latest)", "Agreed Price (High to Low)", "MC Number"])
+                sort_by = st.selectbox("Sort by", ["Timestamp (Latest)", "Agreed Price (High to Low)"])
             
             filtered_df = df[(df['Outcome'].isin(outcome_filter))]
             if len(sentiment_filter) > 0:
                 filtered_df = filtered_df[filtered_df['Sentiment'].isin(sentiment_filter)]
             
-            # 3. THE DATA TABLE (Existing code)
+            if sort_by == "Agreed Price (High to Low)":
+                filtered_df = filtered_df.sort_values(by="Agreed Price", ascending=False)
+            else:
+                filtered_df = filtered_df.sort_values(by="Timestamp", ascending=False)
+            
             st.dataframe(filtered_df, use_container_width=True, hide_index=True)
             
             csv = filtered_df.to_csv(index=False)
             st.download_button(label="📥 Download as CSV", data=csv, mime="text/csv")
 
             # ==========================================
-            # 🔍 NEW CODE: DEEP DIVE SECTION
+            # 🔍 DEEP DIVE SECTION
             # ==========================================
             st.divider()
             st.subheader("🔍 Deep Dive: Call Review")
             
-            call_options = filtered_df.apply(lambda x: f"{x['Call ID'][:8]}... (MC: {x['MC Number']})", axis=1).tolist()
+            call_options = filtered_df.apply(lambda x: f"{str(x['Call ID'])[:8]}... (MC: {x['MC Number']})", axis=1).tolist()
             
             if call_options:
                 selected_label = st.selectbox("Select a Call to review the full transcript:", options=call_options)
-                
                 selected_idx = call_options.index(selected_label)
                 call_data = filtered_df.iloc[selected_idx]
                 
@@ -324,24 +265,19 @@ elif mode == "📞 Call Records":
                     st.write(f"**Outcome:** `{call_data['Outcome']}`")
                     st.write(f"**Sentiment:** `{call_data['Sentiment']}`")
                 with c3:
-                    st.write(f"**Carrier MC:** {call_data['MC Number']}")
+                    carrier_display = call_data.get('Carrier Name', 'Unknown')
+                    st.write(f"**Carrier:** {carrier_display} (MC: {call_data['MC Number']})")
                     st.write(f"**Load ID:** {call_data['Load ID']}")
 
                 st.markdown("### 📝 Full Conversation Transcript")
                 
-                # Handling the hidden 'call_transcript' data
                 raw_transcript = call_data.get('call_transcript') or call_data.get('transcript') or "[]"
-
                 try:
-                    # Parse the JSON string
                     messages = json.loads(raw_transcript)
-                    
-                    # Display as a modern chat history
                     for msg in messages:
                         role = msg.get("role", "")
                         content = msg.get("content", "")
                         
-                        # Skip tool logs and empty content to keep it clean for the user
                         if not content or role == "tool":
                             continue
                             
@@ -351,48 +287,13 @@ elif mode == "📞 Call Records":
                         elif role == "user":
                             with st.chat_message("user", avatar="🚛"):
                                 st.write(f"**Carrier:** {content}")
-                
                 except Exception as e:
-                    # Fallback if transcript is just plain text or malformed
                     st.info(str(raw_transcript).replace("\\n", "\n"))
 
 # ==================== PERFORMANCE ====================
 elif mode == "🎯 Performance":
     st.title("🎯 Advanced Performance Analytics")
-    
-    metrics = fetch_metrics()
-    calls_data = fetch_calls()
-    
-    if metrics and calls_data and calls_data.get('calls'):
-        st.subheader("Call Outcome Distribution")
-        
-        df = pd.DataFrame(calls_data['calls'])
-        if not df.empty:
-            outcome_counts = df['outcome'].value_counts()
-            
-            fig = go.Figure(data=[
-                go.Bar(
-                    x=outcome_counts.index,
-                    y=outcome_counts.values,
-                    marker_color=['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A']
-                )
-            ])
-            fig.update_layout(
-                title="Calls by Outcome",
-                xaxis_title="Outcome",
-                yaxis_title="Count",
-                height=400
-            )
-            st.plotly_chart(fig, use_container_width=True)
-            
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Most Common Outcome", outcome_counts.idxmax() if not outcome_counts.empty else "N/A")
-            with col2:
-                st.metric("Calls with Sentiment", len(df[df['sentiment'].notna()]))
-            with col3:
-                avg_price = df['agreed_price'].mean()
-                st.metric("Average Deal Value", f"${avg_price:,.2f}" if not pd.isna(avg_price) else "N/A")
+    st.info("Check out the 📊 Dashboard tab for the new updated visualization metrics!")
 
 # ==================== SETTINGS ====================
 elif mode == "⚙️ Settings":
@@ -405,34 +306,13 @@ elif mode == "⚙️ Settings":
     with col2:
         st.code(f"API Key: {API_KEY[:20]}...")
     
-    st.subheader("Test API Connection")
-    if st.button("🔗 Test Connection"):
-        try:
-            response = requests.get(
-                f"{API_BASE_URL}/health",
-                headers=HEADERS,
-                timeout=5
-            )
-            if response.status_code == 200:
-                st.success("✅ API is running and responding correctly")
-                st.json(response.json())
-            else:
-                st.error(f"❌ API returned status {response.status_code}")
-        except Exception as e:
-            st.error(f"❌ Connection failed: {str(e)}")
-    
     st.subheader("Database Seeding")
     if st.button("🌱 Seed Sample Loads"):
         with st.spinner("Seeding database..."):
             try:
-                response = requests.post(
-                    f"{API_BASE_URL}/loads/seed",
-                    headers=HEADERS,
-                    timeout=10
-                )
+                response = requests.post(f"{API_BASE_URL}/loads/seed", headers=HEADERS, timeout=10)
                 if response.status_code == 200:
                     st.success("✅ Sample loads seeded successfully")
-                    st.json(response.json())
                 else:
                     st.error(f"Failed: {response.text}")
             except Exception as e:
@@ -443,6 +323,6 @@ st.markdown("---")
 st.markdown("""
 <div style='text-align: center'>
     <p>🤖 HappyRobot Inbound Carrier Sales | Forward Deployment Engineer Challenge</p>
-    <p style='font-size: 12px; color: gray;'>Last updated: """ + datetime.now().strftime('%Y-%m-%d %H:%M:%S') + """</p>
+    <p style='font-size: 12px; color: gray;'>Built with Python, FastAPI, and Streamlit</p>
 </div>
 """, unsafe_allow_html=True)
