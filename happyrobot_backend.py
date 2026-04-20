@@ -14,11 +14,16 @@ from sqlalchemy import create_engine, Column, String, Float, DateTime, Integer
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 import os
+import requests
 from dotenv import load_dotenv
 from textblob import TextBlob
 import logging
 
+# 1. LOAD ENV VARS FIRST
 load_dotenv()
+
+# 2. THEN GRAB THE KEY
+FMCSA_API_KEY = os.getenv("FMCSA_API_KEY")
 
 # ==================== DATABASE SETUP ====================
 DATABASE_URL = "sqlite:///./loads.db"
@@ -108,21 +113,10 @@ class CallCompleteRequest(BaseModel):
     outcome: str
     agreed_price: float
     transcript: str
-    # These two MUST be here because HappyRobot is now sending them!
     mc_number: Optional[str] = None
+    carrier_name: Optional[str] = None # Added for FMCSA name tracking
     load_id: Optional[str] = None
     negotiation_rounds: int = 0
-
-class CallRecord(BaseModel):
-    call_id: str
-    mc_number: str
-    load_id: str
-    initial_offer: float
-    final_offer: float
-    agreed_price: Optional[float]
-    outcome: str
-    sentiment: str
-    negotiation_rounds: int
 
 # ==================== API INITIALIZATION ====================
 app = FastAPI(
@@ -155,26 +149,6 @@ def get_db():
         db.close()
 
 # ==================== UTILITY FUNCTIONS ====================
-def verify_mc_number(mc_number: str) -> dict:
-    """Mock FMCSA verification - returns mock response"""
-    # In production, integrate with actual FMCSA API
-    # https://mobile.fmcsa.dot.gov/api/docs
-    
-    valid_mcs = ["1234567", "7654321", "1111111", "9999999", "5555555"]
-    
-    if mc_number in valid_mcs or len(mc_number) >= 7:
-        return {
-            "valid": True,
-            "mc_number": mc_number,
-            "company_name": f"Carrier {mc_number}",
-            "safety_rating": "Satisfactory",
-            "authority_status": "Active"
-        }
-    return {
-        "valid": False,
-        "reason": "MC number not found in FMCSA database"
-    }
-
 def analyze_sentiment(text: str) -> str:
     """Analyze sentiment of carrier's response"""
     blob = TextBlob(text)
@@ -188,30 +162,51 @@ def analyze_sentiment(text: str) -> str:
 
 def calculate_final_offer(initial_offer: float, carrier_offer: float, round_num: int) -> float:
     """Calculate system's counter offer - Broker Logic"""
-    # If they've asked too many times, stay at the last offer
     if round_num >= 3:
         return initial_offer
-    
-    # Set a 'Max Pay' ceiling (e.g., 15% above the loadboard rate)
     max_pay = initial_offer * 1.15
-    
-    # Meet them halfway
     proposed_increase = (initial_offer + carrier_offer) / 2
-    
-    # Return the halfway point, but never go above your Max Pay
     return min(proposed_increase, max_pay)
+
+# --- NEW FMCSA LOGIC HERE ---
+def check_fmcsa_status(mc_number: str):
+    """Hits the live FMCSA API to verify carrier authority."""
+    if not FMCSA_API_KEY:
+        return {"verified": False, "message": "API Key missing in server config."}
+
+    try:
+        url = f"https://mobile.fmcsa.dot.gov/qc/services/carriers/{mc_number}?webKey={FMCSA_API_KEY}"
+        response = requests.get(url, timeout=5)
+        
+        if response.status_code == 200:
+            data = response.json()
+            content = data.get('content', {})
+            carrier = content.get('carrier', {})
+            
+            is_allowed = carrier.get('allowedToOperate') == 'Y'
+            legal_name = carrier.get('legalName', "Unknown Carrier")
+            
+            return {
+                "verified": is_allowed,
+                "carrier_name": legal_name,
+                "message": "Authorized" if is_allowed else "Authority Not Active"
+            }
+        
+        return {"verified": False, "message": "FMCSA system error."}
+        
+    except Exception as e:
+        return {"verified": False, "message": f"Connection error: {str(e)}"}
 
 # ==================== ENDPOINTS ====================
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
     return {"status": "healthy", "service": "HappyRobot Inbound Carrier Sales API"}
 
 @app.post("/loads/seed", dependencies=[Depends(verify_api_key)])
 async def seed_loads(db: Session = Depends(get_db)):
     """Seed database with sample loads"""
-    sample_loads = [
+   sample_loads = [
         {
             "load_id": "LOAD001",
             "origin": "Los Angeles, CA",
@@ -300,25 +295,25 @@ async def seed_loads(db: Session = Depends(get_db)):
 
 @app.post("/verify-mc")
 async def verify_mc(request: CallInitRequest, db: Session = Depends(get_db), api_key: str = Depends(verify_api_key)):
-    """Verify MC number via FMCSA"""
-    verification = verify_mc_number(request.mc_number)
+    """Verify MC number via live FMCSA API"""
+    verification = check_fmcsa_status(request.mc_number)
     
-    if not verification["valid"]:
+    if not verification["verified"]:
         return {
             "verified": False,
-            "reason": verification.get("reason", "Invalid MC number"),
+            "reason": verification.get("message", "Invalid MC number"),
             "call_id": None
         }
     
-    # Create call record
     call_id = str(uuid.uuid4())
+    carrier_name = verification.get("carrier_name", "Unknown Carrier")
     
     return {
         "verified": True,
         "call_id": call_id,
         "mc_number": request.mc_number,
-        "carrier_name": request.carrier_name or verification.get("company_name"),
-        "message": "MC number verified. Ready to offer loads."
+        "carrier_name": carrier_name,
+        "message": f"MC number verified. Carrier name is {carrier_name}. Ready to offer loads."
     }
 
 @app.post("/search-loads")
@@ -327,7 +322,6 @@ async def search_loads(
     db: Session = Depends(get_db),
     api_key: str = Depends(verify_api_key)
 ):
-    """Search for available loads based on carrier preferences"""
     query = db.query(LoadDB).filter(LoadDB.available == 1)
     
     if request.origin:
@@ -370,13 +364,11 @@ async def negotiate(
     db: Session = Depends(get_db),
     api_key: str = Depends(verify_api_key)
 ):
-    """Handle price negotiation"""
     call_record = db.query(CallRecordDB).filter(CallRecordDB.call_id == request.call_id).first()
     
     if not call_record:
         raise HTTPException(status_code=404, detail="Call record not found")
     
-    # Check if we've hit max negotiation rounds
     if call_record.negotiation_rounds >= 3:
         return {
             "can_negotiate": False,
@@ -387,7 +379,6 @@ async def negotiate(
     call_record.negotiation_rounds += 1
     sentiment = analyze_sentiment(request.transcript_snippet)
     
-    # Calculate counter offer
     counter_offer = calculate_final_offer(
         call_record.initial_offer,
         request.carrier_offer,
@@ -412,8 +403,6 @@ async def complete_call(
     db: Session = Depends(get_db),
     api_key: str = Depends(verify_api_key)
 ):
-    """Final Version: Fully synced with CallRecordDB and HappyRobot"""
-    # 1. Find or create the record
     call_record = db.query(CallRecordDB).filter(CallRecordDB.call_id == request.call_id).first()
     
     if not call_record:
@@ -425,19 +414,20 @@ async def complete_call(
         db.add(call_record)
         db.flush()
 
-    # 2. Map fields to your specific DB columns
     call_record.mc_number = request.mc_number
     call_record.load_id = request.load_id
     call_record.agreed_price = request.agreed_price
-    call_record.call_outcome = request.outcome      # Database uses call_outcome
-    call_record.call_transcript = request.transcript # Database uses call_transcript
+    call_record.call_outcome = request.outcome
+    call_record.call_transcript = request.transcript
     call_record.negotiation_rounds = request.negotiation_rounds
     
-    # 3. Handle Sentiment
+    # --- ADDED: Store Carrier Name if HappyRobot extracts it ---
+    if request.carrier_name:
+        call_record.carrier_name = request.carrier_name
+    
     sentiment = analyze_sentiment(request.transcript)
     call_record.sentiment = sentiment
 
-    # 4. Lock the load (with safety check)
     try:
         if request.outcome == "agreed" and request.agreed_price and request.load_id:
             load = db.query(LoadDB).filter(LoadDB.load_id == request.load_id).first()
@@ -450,20 +440,15 @@ async def complete_call(
     return {"status": "success", "message": "Dashboard sync perfect"}
 
 @app.get("/calls/{call_id}")
-async def get_call(
-    call_id: str,
-    db: Session = Depends(get_db),
-    api_key: str = Depends(verify_api_key)
-):
-    """Get call record details"""
+async def get_call(call_id: str, db: Session = Depends(get_db), api_key: str = Depends(verify_api_key)):
     call_record = db.query(CallRecordDB).filter(CallRecordDB.call_id == call_id).first()
-    
     if not call_record:
         raise HTTPException(status_code=404, detail="Call not found")
     
     return {
         "call_id": call_record.call_id,
         "mc_number": call_record.mc_number,
+        "carrier_name": call_record.carrier_name,
         "load_id": call_record.load_id,
         "initial_offer": call_record.initial_offer,
         "final_offer": call_record.final_offer,
@@ -475,16 +460,11 @@ async def get_call(
     }
 
 @app.get("/metrics")
-async def get_metrics(
-    db: Session = Depends(get_db),
-    api_key: str = Depends(verify_api_key)
-):
-    """Get aggregated metrics"""
+async def get_metrics(db: Session = Depends(get_db), api_key: str = Depends(verify_api_key)):
     total_calls = db.query(CallRecordDB).count()
     agreed_calls = db.query(CallRecordDB).filter(CallRecordDB.call_outcome == "agreed").count()
     
     from sqlalchemy import func
-    
     avg_negotiation = db.query(func.avg(CallRecordDB.negotiation_rounds)).scalar() or 0
     total_revenue = db.query(func.sum(CallRecordDB.agreed_price)).scalar() or 0
     
@@ -505,12 +485,7 @@ async def get_metrics(
     }
 
 @app.get("/calls")
-async def list_calls(
-    db: Session = Depends(get_db),
-    api_key: str = Depends(verify_api_key),
-    limit: int = 100
-):
-    """List all call records - now including transcripts"""
+async def list_calls(db: Session = Depends(get_db), api_key: str = Depends(verify_api_key), limit: int = 100):
     calls = db.query(CallRecordDB).order_by(CallRecordDB.created_at.desc()).limit(limit).all()
     
     return {
@@ -519,17 +494,18 @@ async def list_calls(
             {
                 "call_id": call.call_id,
                 "mc_number": call.mc_number,
+                "carrier_name": call.carrier_name,
                 "load_id": call.load_id,
                 "outcome": call.call_outcome,
                 "sentiment": call.sentiment,
                 "agreed_price": call.agreed_price,
                 "created_at": call.created_at.isoformat(),
-                # --- ADD THIS LINE BELOW ---
                 "call_transcript": call.call_transcript 
             }
             for call in calls
         ]
     }
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
