@@ -23,7 +23,7 @@ import logging
 load_dotenv()
 
 # 2. THEN GRAB THE KEY
-FMCSA_API_KEY = os.getenv("FMCSA_API_KEY")
+FMCSA_API_KEY = os.getenv("FMCSA_API_KEY", "cdc33e44d693a3a58451898d4ec9df862c65b954")
 
 # ==================== DATABASE SETUP ====================
 DATABASE_URL = "sqlite:///./loads.db"
