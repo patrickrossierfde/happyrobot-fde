@@ -171,16 +171,18 @@ def calculate_final_offer(initial_offer: float, carrier_offer: float, round_num:
 # --- NEW FMCSA LOGIC HERE ---
 def check_fmcsa_status(mc_number: str):
     """Hits the live FMCSA API to verify carrier authority."""
-    # Tries the environment first, but falls back to the exact key
     FMCSA_API_KEY = os.getenv("FMCSA_API_KEY", "cdc33e44d693a3a58451898d4ec9df862c65b954")
     
-    if not FMCSA_API_KEY:
-        return {"verified": False, "message": "API Key missing in server config."}
+    # --- THE FIX: Clean the input! ---
+    # Government APIs crash if they see spaces or letters (like "MC 54283" or "54283 ").
+    # This line extracts ONLY the digits from whatever the AI heard.
+    clean_number = "".join(filter(str.isdigit, str(mc_number)))
+    
+    if not clean_number:
+        return {"verified": False, "message": "Could not understand the number."}
 
     try:
-        # Note: This endpoint searches by USDOT Number
-        url = f"https://mobile.fmcsa.dot.gov/qc/services/carriers/{mc_number}?webKey={FMCSA_API_KEY}"
-        
+        url = f"https://mobile.fmcsa.dot.gov/qc/services/carriers/{clean_number}?webKey={FMCSA_API_KEY}"
         response = requests.get(url, timeout=5)
         
         if response.status_code == 200:
@@ -197,13 +199,11 @@ def check_fmcsa_status(mc_number: str):
                 "message": "Authorized" if is_allowed else "Authority Not Active"
             }
         elif response.status_code == 404:
-            # Now it politely handles fake numbers!
-            return {"verified": False, "message": "Carrier not found in FMCSA database. Please verify your number."}
-        elif response.status_code == 401:
-            return {"verified": False, "message": "FMCSA API Key is unauthorized."}
+            # Safely handle numbers that don't exist
+            return {"verified": False, "message": "Carrier not found in federal database."}
+        else:
+            return {"verified": False, "message": f"FMCSA System Error ({response.status_code})."}
             
-        return {"verified": False, "message": f"FMCSA system error {response.status_code}."}
-        
     except Exception as e:
         return {"verified": False, "message": f"Connection error: {str(e)}"}
 
