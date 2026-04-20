@@ -206,7 +206,7 @@ async def health_check():
 @app.post("/loads/seed", dependencies=[Depends(verify_api_key)])
 async def seed_loads(db: Session = Depends(get_db)):
     """Seed database with sample loads"""
-   sample_loads = [
+    sample_loads = [
         {
             "load_id": "LOAD001",
             "origin": "Los Angeles, CA",
