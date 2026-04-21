@@ -26,6 +26,6 @@ This project provides an end-to-end automated solution for handling inbound carr
 ## 🚀 Deployment Instructions
 The solution is containerized via Docker. To run locally:
 ```bash
-git clone [Your-Repo-Link]
-cd [Your-Repo-Folder]
+git clone https://github.com/patrickrossierfde/happyrobot-fde
+cd happyrobot-fde
 docker-compose up --build
