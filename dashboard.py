@@ -126,19 +126,19 @@ if mode == "📊 Dashboard":
             if not agreed_deals.empty:
                 avg_deal_value = agreed_deals['agreed_price'].astype(float).mean()
 
-        # Key Metrics Row 1 (Now with 5 columns!)
+        # Key Metrics Row 1 (Now with 5 columns & tooltips!)
         col1, col2, col3, col4, col5 = st.columns(5)
         
         with col1:
-            st.metric("📞 Total Calls", metrics.get('total_calls', 0))
+            st.metric("📞 Total Calls", metrics.get('total_calls', 0), help="Total number of inbound carrier calls answered by the AI.")
         with col2:
-            st.metric("✅ Deals Closed", metrics.get('agreed_calls', 0), f"{metrics.get('conversion_rate', 0):.1f}% conv")
+            st.metric("✅ Deals Closed", metrics.get('agreed_calls', 0), f"{metrics.get('conversion_rate', 0):.1f}% conv", help="Number of calls that resulted in a successfully booked load.")
         with col3:
-            st.metric("💰 Total Revenue", f"${metrics.get('total_revenue_generated', 0):,.2f}")
+            st.metric("💰 Total Revenue", f"${metrics.get('total_revenue_generated', 0):,.2f}", help="Total gross value of all freight booked by the AI.")
         with col4:
-            st.metric("📈 Avg Deal Value", f"${avg_deal_value:,.2f}" if avg_deal_value > 0 else "$0.00")
+            st.metric("📈 Avg Deal Value", f"${avg_deal_value:,.2f}" if avg_deal_value > 0 else "$0.00", help="Average negotiated payout per booked load.")
         with col5:
-            st.metric("🔄 Avg Rounds Negotiation", f"{metrics.get('avg_negotiation_rounds', 0):.1f}")
+            st.metric("🔄 Avg Rounds Negotiation", f"{metrics.get('avg_negotiation_rounds', 0):.1f}", help="Average number of counter-offers before a deal is reached or rejected.")
         
         st.markdown("---")
         
@@ -328,10 +328,10 @@ elif mode == "🎯 Performance":
             st.subheader("💰 AI Margin Contribution")
             col1, col2, col3 = st.columns(3)
             with col1:
-                st.metric("Total AI Cost Savings", f"${total_savings:,.2f}", "Added directly to margin")
+                st.metric("Total AI Cost Savings", f"${total_savings:,.2f}", "Added directly to margin", help="Calculated as: (Target Loadboard Rate) - (AI Final Negotiated Price). This represents pure profit protected by the AI.")
             with col2:
                 avg_savings = df[agreed_mask]['AI Savings'].mean() if not df[agreed_mask].empty else 0
-                st.metric("Avg Savings Per Booked Load", f"${avg_savings:,.2f}")
+                st.metric("Avg Savings Per Booked Load", f"${avg_savings:,.2f}", help="The average 'spread' or margin generated per successful deal.")
             with col3:
                 st.info("**Insight:** When AI Savings are consistently high, consider lowering target loadboard rates to capture even wider margins.")
 
