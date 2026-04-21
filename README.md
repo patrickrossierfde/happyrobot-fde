@@ -4,6 +4,12 @@
 ## 📌 Overview
 This project provides an end-to-end automated solution for handling inbound carrier inquiries. Using the HappyRobot Voice AI platform, we have developed an agent capable of vetting carriers, searching real-time load data, and negotiating rates autonomously.
 
+## 🔗 Live Project Links
+* **Demo Video (Walkthrough):** [Insert Loom/Zoom Link here]
+* **Live Analytics Dashboard:** [Insert your Streamlit/Railway URL here]
+* **HappyRobot Workflow:** [Insert HappyRobot share link here]
+* **Backend API Base URL:** [Insert your Railway Backend URL here]
+
 ## 🛠️ Technical Stack
 - **AI Platform:** HappyRobot (Voice AI & LLM Extraction)
 - **Backend:** FastAPI (Python)
@@ -21,4 +27,6 @@ This project provides an end-to-end automated solution for handling inbound carr
 ## 🚀 Deployment Instructions
 The solution is containerized via Docker. To run locally:
 ```bash
+git clone [Your-Repo-Link]
+cd [Your-Repo-Folder]
 docker-compose up --build
