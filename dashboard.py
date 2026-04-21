@@ -138,7 +138,7 @@ if mode == "📊 Dashboard":
         with col4:
             st.metric("📈 Avg Deal Value", f"${avg_deal_value:,.2f}" if avg_deal_value > 0 else "$0.00")
         with col5:
-            st.metric("🔄 Avg Rounds", f"{metrics.get('avg_negotiation_rounds', 0):.1f}")
+            st.metric("🔄 Avg Rounds Negotiation", f"{metrics.get('avg_negotiation_rounds', 0):.1f}")
         
         st.markdown("---")
         
